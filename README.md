@@ -97,4 +97,4 @@ GPLv3+ — see [LICENSE](LICENSE)
 
 ## Author
 
-Ran Morgan
+Ray McCaffity
