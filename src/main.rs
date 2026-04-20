@@ -640,8 +640,9 @@ fn build_repos_page(
 
     // Legacy note
     let note = gtk4::Label::new(Some(
-        "Note: Legacy NVIDIA drivers (390xx, 470xx) and CUDA/ROCm support \
-         are not managed by this version of GPU Driver Manager.",
+        "Note: CUDA and ROCm toolchain packages are not managed by this tool. \
+         Legacy NVIDIA drivers (390xx, 470xx) are supported — the correct \
+         driver branch is detected automatically from your GPU's PCI device ID.",
     ));
     note.add_css_class("dim-label");
     note.set_wrap(true);
