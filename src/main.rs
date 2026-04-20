@@ -11,9 +11,12 @@ use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::thread;
 
+mod nvidia_branch;
+use nvidia_branch::{nvidia_driver_branch, nvidia_packages_for_branch};
+
 const APP_ID:      &str = "org.fedoraproject.GpuManager";
 const APP_NAME:    &str = "GPU Driver Manager";
-const APP_VERSION: &str = "1.0.0";
+const APP_VERSION: &str = "1.1.0";
 
 // ---------------------------------------------------------------------------
 // Detection helpers
@@ -208,16 +211,27 @@ pub fn enrich_gpu(gpu: &mut GpuInfo) {
                     gpu.extra.push(("VBIOS version".into(), parts[1].to_string()));
                 }
             }
+            // Detect correct driver branch for this GPU
+            let device_id = gpu.pci_id.split(':').nth(1).unwrap_or("");
+            let branch = nvidia_driver_branch(device_id);
+            gpu.extra.push(("Driver branch".into(), match branch {
+                "390xx" => "390xx legacy (Kepler)".into(),
+                "470xx" => "470xx legacy (Maxwell/Pascal)".into(),
+                _       => "Current (Turing/Ampere/Ada/Blackwell)".into(),
+            }));
             gpu.installed_pkgs = query_installed(&[
-                "akmod-nvidia",
-                "xorg-x11-drv-nvidia",
-                "xorg-x11-drv-nvidia-power",
-                "nvidia-settings",
-                "nvidia-modprobe",
-                "nvidia-xconfig",
-                "libva-nvidia-driver",
+                "akmod-nvidia", "akmod-nvidia-390xx", "akmod-nvidia-470xx",
+                "xorg-x11-drv-nvidia", "xorg-x11-drv-nvidia-390xx", "xorg-x11-drv-nvidia-470xx",
+                "xorg-x11-drv-nvidia-power", "nvidia-settings",
+                "nvidia-settings-390xx", "nvidia-settings-470xx",
+                "nvidia-modprobe", "libva-nvidia-driver",
             ]);
-            gpu.available_pkgs = query_available(&["akmod-nvidia", "xorg-x11-drv-nvidia"]);
+            let avail_pkgs: &[&str] = match branch {
+                "390xx" => &["akmod-nvidia-390xx", "xorg-x11-drv-nvidia-390xx"],
+                "470xx" => &["akmod-nvidia-470xx", "xorg-x11-drv-nvidia-470xx"],
+                _       => &["akmod-nvidia", "xorg-x11-drv-nvidia"],
+            };
+            gpu.available_pkgs = query_available(avail_pkgs);
         }
         Vendor::Amd => {
             let vk = run_cmd(
@@ -414,40 +428,46 @@ fn build_gpu_page(gpu: &GpuInfo, free: bool, nonfree: bool,
             let nvidia_grp = adw::PreferencesGroup::new();
             nvidia_grp.set_title("Driver Management");
 
+            // Determine correct driver branch for this specific GPU
+            let device_id = gpu.pci_id.split(':').nth(1).unwrap_or("");
+            let branch = nvidia_driver_branch(device_id);
+            let (pkg_list, branch_desc) = nvidia_packages_for_branch(branch);
+            let akmod_pkg = match branch {
+                "390xx" => "akmod-nvidia-390xx",
+                "470xx" => "akmod-nvidia-470xx",
+                _       => "akmod-nvidia",
+            };
+            let driver_installed = gpu.installed_pkgs.contains_key(akmod_pkg);
+
             if !nonfree {
-                // RPM Fusion nonfree not enabled — must install first
                 nvidia_grp.set_description(Some(
                     "RPM Fusion nonfree is required for the NVIDIA proprietary driver."
                 ));
                 let tx = log_tx.clone();
                 let st = stack.clone();
+                let btn_label = format!("Install RPM Fusion & NVIDIA Driver ({})", branch_desc);
+                let cmd = format!("{} && dnf install -y {}", install_rpmfusion_cmd(), pkg_list);
                 nvidia_grp.add(&install_button_row(
-                    "Install RPM Fusion &amp; NVIDIA Driver",
-                    "Installs RPM Fusion nonfree repos then akmod-nvidia",
-                    format!("{} && dnf install -y akmod-nvidia xorg-x11-drv-nvidia \
-                             xorg-x11-drv-nvidia-power nvidia-settings nvidia-modprobe",
-                             install_rpmfusion_cmd()),
-                    tx, st,
+                    &btn_label,
+                    &format!("Installs RPM Fusion nonfree then {}", akmod_pkg),
+                    cmd, tx, st,
                 ));
-            } else if !gpu.installed_pkgs.contains_key("akmod-nvidia") {
-                // RPM Fusion enabled but driver not installed
+            } else if !driver_installed {
                 nvidia_grp.set_description(Some(
-                    "NVIDIA proprietary driver is not installed."
+                    &format!("NVIDIA driver not installed. Your GPU requires the {}.", branch_desc)
                 ));
                 let tx = log_tx.clone();
                 let st = stack.clone();
+                let btn_label = format!("Install NVIDIA Driver ({})", branch_desc);
+                let cmd = format!("dnf install -y {}", pkg_list);
                 nvidia_grp.add(&install_button_row(
-                    "Install NVIDIA Driver",
-                    "Installs akmod-nvidia, xorg-x11-drv-nvidia, nvidia-settings",
-                    "dnf install -y akmod-nvidia xorg-x11-drv-nvidia \
-                     xorg-x11-drv-nvidia-power nvidia-settings nvidia-modprobe".to_string(),
-                    tx, st,
+                    &btn_label,
+                    &format!("Installs {}", akmod_pkg),
+                    cmd, tx, st,
                 ));
             } else {
-                // Driver installed — show status
                 nvidia_grp.set_description(Some(
-                    "NVIDIA proprietary driver is installed. A reboot may be required \
-                     after kernel updates for akmod to rebuild."
+                    &format!("NVIDIA driver installed ({}). A reboot may be required after kernel updates for akmod to rebuild.", branch_desc)
                 ));
                 let row = adw::ActionRow::new();
                 row.set_title("Driver status");
@@ -458,6 +478,7 @@ fn build_gpu_page(gpu: &GpuInfo, free: bool, nonfree: bool,
             }
             vbox.append(&nvidia_grp);
         }
+
 
         Vendor::Amd => {
             if !is_igpu {
