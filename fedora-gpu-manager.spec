@@ -1,5 +1,5 @@
 Name:           fedora-gpu-manager
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        GPU driver detection and management tool for Fedora
 
