@@ -16,7 +16,7 @@ use nvidia_branch::{nvidia_driver_branch, nvidia_packages_for_branch};
 
 const APP_ID:      &str = "org.fedoraproject.GpuManager";
 const APP_NAME:    &str = "GPU Driver Manager";
-const APP_VERSION: &str = "1.1.0";
+const APP_VERSION: &str = "1.1.1";
 
 // ---------------------------------------------------------------------------
 // Detection helpers
