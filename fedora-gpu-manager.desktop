@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=GPU Driver Manager
+GenericName=GPU Driver Manager
+Comment=Detect GPUs and manage drivers on Fedora
+Exec=fedora-gpu-manager
+Icon=preferences-desktop-display
+Categories=System;Settings;HardwareSettings;
+Keywords=gpu;nvidia;amd;intel;driver;rpmfusion;
+StartupNotify=true
+Terminal=false

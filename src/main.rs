@@ -16,10 +16,11 @@ use nvidia_branch::{nvidia_driver_branch, nvidia_packages_for_branch};
 
 const APP_ID:      &str = "org.fedoraproject.GpuManager";
 const APP_NAME:    &str = "GPU Driver Manager";
-const APP_VERSION: &str = "1.1.1";
+const APP_VERSION: &str = "1.2.0";
+
 
 // ---------------------------------------------------------------------------
-// Detection helpers
+// Core command runner
 // ---------------------------------------------------------------------------
 
 fn run_cmd(cmd: &str) -> String {
@@ -29,6 +30,45 @@ fn run_cmd(cmd: &str) -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default()
 }
+
+// ---------------------------------------------------------------------------
+// glxinfo parsing
+// ---------------------------------------------------------------------------
+
+fn parse_glxinfo() -> Vec<(String, String)> {
+    let raw = run_cmd("glxinfo -B 2>/dev/null");
+    if raw.is_empty() { return vec![]; }
+
+    let mut fields = Vec::new();
+
+    let patterns: &[(&str, &str)] = &[
+        (r"direct rendering:\s*(\S+)",           "Direct rendering"),
+        (r"Vendor:\s*(.+?)\s*(?:\(|$)",          "GL vendor"),
+        (r"Device:\s*(.+?)\s*\(0x",              "GL device"),
+        (r"^\s+Version:\s*(\S+)",                "Mesa version"),
+        (r"Accelerated:\s*(\S+)",                 "Accelerated"),
+        (r"Video memory:\s*(\S+)",                "Video memory"),
+        (r"OpenGL version string:\s*(.+)",         "OpenGL version"),
+        (r"OpenGL renderer string:\s*(.+)",        "OpenGL renderer"),
+        (r"OpenGL ES profile version string:\s*(.+)", "OpenGL ES version"),
+    ];
+
+    for (pat, label) in patterns {
+        if let Ok(re) = regex::Regex::new(pat) {
+            if let Some(cap) = re.captures(&raw) {
+                if let Some(m) = cap.get(1) {
+                    let val = m.as_str().trim().to_string();
+                    if !val.is_empty() {
+                        fields.push((label.to_string(), val));
+                    }
+                }
+            }
+        }
+    }
+    fields
+}
+
+
 
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
@@ -531,6 +571,24 @@ fn build_gpu_page(gpu: &GpuInfo, free: bool, nonfree: bool,
         Vendor::Unknown => {}
     }
 
+    // OpenGL / glxinfo group — call parse_glxinfo() directly
+    {
+        let glx_fields = parse_glxinfo();
+        let glx_grp = adw::PreferencesGroup::new();
+        glx_grp.set_title("OpenGL Information");
+        if glx_fields.is_empty() {
+            let row = adw::ActionRow::new();
+            row.set_title("glxinfo not available — install mesa-demos: dnf install mesa-demos");
+            row.add_css_class("dim-label");
+            glx_grp.add(&row);
+        } else {
+            for (label, value) in &glx_fields {
+                glx_grp.add(&action_row(label, value));
+            }
+        }
+        vbox.append(&glx_grp);
+    }
+
     // ── Packages ─────────────────────────────────────────────────────────────
     vbox.append(&pkg_group("Installed Packages", &gpu.installed_pkgs,
                             "No relevant packages installed"));
@@ -593,7 +651,7 @@ fn build_repos_page(
         (true, true) => {
             let row = adw::ActionRow::new();
             row.set_title("RPM Fusion fully configured");
-            let badge = gtk4::Label::new(Some("No action needed \u{2713}"));
+            let badge = gtk4::Label::new(Some("No action needed ✓"));
             badge.add_css_class("success");
             row.add_suffix(&badge);
             actions_grp.add(&row);
@@ -638,16 +696,27 @@ fn build_repos_page(
         }
     }
 
-    // Legacy note
+    // Driver support note
     let note = gtk4::Label::new(Some(
-        "Note: CUDA and ROCm toolchain packages are not managed by this tool. \
-         Legacy NVIDIA drivers (390xx, 470xx) are supported — the correct \
-         driver branch is detected automatically from your GPU's PCI device ID.",
+        "NVIDIA drivers (390xx, 470xx, current) are detected and installed automatically. \
+         With kernel 6.19 or newer, additional legacy AMD Radeon GPUs are also supported \
+         via the in-kernel amdgpu driver.",
     ));
     note.add_css_class("dim-label");
     note.set_wrap(true);
     note.set_halign(gtk4::Align::Start);
     vbox.append(&note);
+
+    // CUDA/ROCm note
+    let cuda_note = gtk4::Label::new(Some(
+        "CUDA (NVIDIA) and ROCm (AMD) are optional compute frameworks used for AI, \
+         machine learning, and scientific workloads \u{2014} not required for normal \
+         GPU operation or gaming. These are not managed by this tool.",
+    ));
+    cuda_note.add_css_class("dim-label");
+    cuda_note.set_wrap(true);
+    cuda_note.set_halign(gtk4::Align::Start);
+    vbox.append(&cuda_note);
 
     let auth_note = gtk4::Label::new(Some(
         "All install actions require authentication via pkexec.",

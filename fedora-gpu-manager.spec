@@ -1,5 +1,5 @@
 Name:           fedora-gpu-manager
-Version:        1.1.1
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        GPU driver detection and management tool for Fedora
 
@@ -31,11 +31,14 @@ cargo build --release --offline
 %install
 install -Dm755 target/release/fedora-gpu-manager \
     %{buildroot}%{_bindir}/fedora-gpu-manager
+install -Dm644 fedora-gpu-manager.desktop \
+    %{buildroot}%{_datadir}/applications/fedora-gpu-manager.desktop
 
 %files
 %license LICENSE
 %doc README.md
 %{_bindir}/fedora-gpu-manager
+%{_datadir}/applications/fedora-gpu-manager.desktop
 
 %changelog
 * Sat Apr 18 2026 Ray McCaffity <rxmccaf@gmail.com> - 1.0.1-1
